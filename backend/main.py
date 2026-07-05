@@ -3,9 +3,10 @@ FastAPI backend for the PCB design web application.
 """
 import os
 import io
-from fastapi import FastAPI, File, UploadFile, HTTPException
+import traceback
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 from models import Netlist, PCBLayout, AnalyzeResponse
 from schematic_analyzer import analyze_schematic_image
@@ -23,6 +24,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Surface the real error instead of a generic 'Internal Server Error'.
+
+    Prints the full traceback to the backend console and returns the
+    exception message (with type) to the client so it shows up in the UI.
+    """
+    tb = traceback.format_exc()
+    print(f"\n=== Unhandled error on {request.method} {request.url.path} ===")
+    print(tb)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
 
 
 @app.get("/health")
@@ -50,7 +67,9 @@ async def analyze_schematic(file: UploadFile = File(...)):
     try:
         netlist = analyze_schematic_image(data, mime)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        print("\n=== Schematic analysis failed ===")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {type(e).__name__}: {e}")
 
     return AnalyzeResponse(netlist=netlist, message=f"Found {len(netlist.components)} components.")
 
